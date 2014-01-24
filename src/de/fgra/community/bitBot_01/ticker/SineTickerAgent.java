@@ -46,7 +46,7 @@ public class SineTickerAgent extends TickerAgent{
 	protected void setup(){
 		setTickerName("SineTicker");
 		setTickerType("price-ticker");
-		setTickInt(5000);
+		setTickInt(1000);
 		super.setup();
 	}
 

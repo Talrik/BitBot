@@ -2,6 +2,7 @@ package de.fgra.community.bitBot_01.trader;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Currency;
 import java.util.Date;
 import java.util.HashMap;
 
@@ -37,13 +38,13 @@ public class TraderAgent extends Agent {
 	
 	private AccountInfo account;
 	
-	private BigMoney usd = BigMoney.of(CurrencyUnit.USD, 10000);;
+	private BigMoney usd = BigMoney.of(CurrencyUnit.USD, 20);;
 	private BigMoney stock = BigMoney.of(CurrencyUnit.of(Currencies.BTC), 0);
 	private Wallet usdWallet;
 	private Wallet btcWallet;
 	private double fee = 0.2;
-	private BigMoney limit = BigMoney.of(CurrencyUnit.USD, 5000);
-	private double stop_loss = 80;
+	private BigMoney limit = BigMoney.of(CurrencyUnit.USD, 15);
+	private double stop_loss = 90;
 	private double minimal_win = 5;
 	private Ticker ticker = Ticker.TickerBuilder.newInstance().build();
 	private BigMoney oldStockPrice;
@@ -110,6 +111,10 @@ public class TraderAgent extends Agent {
 			
 		
 	}
+	/**
+	 * @author phil
+	 *
+	 */
 	private class BitBotTrade extends CyclicBehaviour {
 		public void action() {
 			MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.CFP);
@@ -196,16 +201,19 @@ public class TraderAgent extends Agent {
 			reply.setConversationId("trade-proposal");
 			reply.setReplyWith(order.getId());
 			myAgent.send(reply);
+			//MessageTemplate mt = MessageTemplate.MatchConversationId("confirm-trading");/*
 			MessageTemplate mt = MessageTemplate.and(MessageTemplate.MatchConversationId("confirm-trading"),
 					MessageTemplate.MatchInReplyTo(reply.getReplyWith()));
-			ACLMessage confirm = myAgent.blockingReceive(mt, 5000);
+					
+			ACLMessage confirm = myAgent.blockingReceive(mt, 1000);
 			if (confirm != null){
 				return confirm.getContent();
 			}
 			else return null;
 		}
 		
-		private BigDecimal calculate_sales_usd_to_stock(Object userAgent,BigMoney price, BigMoney salesvol, double fee, Wallet targetWallet){
+/*
+		private BigDecimal calculate_sales_usd_to_stock(Object userAgent,BigMoney price, BigMoney salesVol, double fee, Wallet targetWallet){
 			System.out.println("To buy stock with "+ salesvol +" you get:");
 			BigMoney cfee = salesvol.minus(salesvol.multipliedBy(1-(fee/100)).rounded(2, RoundingMode.HALF_UP));
 			System.out.println("Fee: "+ cfee );
@@ -235,10 +243,20 @@ public class TraderAgent extends Agent {
 				if ($USD==0) {last;}
 			}
 			return sales;
-			*/
-		}
-		private BigMoney calculate_sales_stock_to_usd(Object userAgent, Wallet wallet, double fee){
 			
+		}
+	*/
+		private BigMoney calculate_sales_stock_to_usd(Object userAgent, BigMoney price, BigMoney salesVol, double fee, Wallet targetWallet){
+	return null;
+	/*
+			System.out.println("To sell the stock of "+ salesVol +" you get:");
+			BigMoney cfee = price.multipliedBy(salesVol.getAmount()).multipliedBy((fee/100)).rounded(2, RoundingMode.HALF_UP);
+			System.out.println("Fee: "+ cfee );
+			BigMoney cmoney = salesvol.minus(cfee);
+			System.out.println("Stock to spend: "+ cmoney);
+			BigMoney stock = BigMoney.of(CurrencyUnit.of(targetWallet.getCurrency()),cmoney.getAmount().divide((price.getAmount()), RoundingMode.HALF_UP));
+			System.out.println("Money you get: "+stock);				
+					return stock.getAmount();
 			return Wallet.createInstance(usdWallet.getCurrency(), wallet.getBalance().getAmount().multiply(ticker.getLast().getAmount().multiply(BigDecimal.valueOf(1-(fee/100))))).getBalance();
 			
 					//TODO use the order book
@@ -266,83 +284,145 @@ public class TraderAgent extends Agent {
 			*/
 		}
 		
+		private boolean simpleTrade(Object userAgent, BigMoney price, BigMoney vol, Wallet sourceWallet, double fee, Wallet targetWallet){
+			System.out.println("Transfer of "+ vol +" to "+ targetWallet.getCurrency() +":");
+			BigMoney cfee, cmoney, stock;
+			OrderType orderType;
+			BigDecimal tradeableAmount;
+			String tradableIdentifier;
+			if(sourceWallet.getCurrency().equalsIgnoreCase("USD")){
+				// we buy stocks
+				orderType = (OrderType.BID);
+				if (vol.getCurrencyUnit().equals(price.getCurrencyUnit())){
+					// we buy for a specified amount of money
+					cfee = vol.multipliedBy(fee/100).rounded(2, RoundingMode.HALF_UP);
+					cmoney = vol.minus(cfee);
+					stock = BigMoney.of(CurrencyUnit.of(targetWallet.getCurrency()),cmoney.getAmount().divide((price.getAmount()), RoundingMode.HALF_UP));
+					System.out.println("Fee: "+cfee.withScale(2) );
+					System.out.println("You spend: "+ cmoney.withScale(2) + " and a fee of "+ cfee.withScale(2));
+					System.out.println("You get: "+stock);
+					tradeableAmount = stock.getAmount();
+					tradableIdentifier = stock.getCurrencyUnit().getCurrencyCode();
+				}
+				else{
+					// we buy a specific amount of stocks
+					cfee = price.multipliedBy((vol.getAmount().multiply(BigDecimal.valueOf(fee/100))));
+					cmoney = price.multipliedBy(vol.getAmount());
+					stock = vol;
+					System.out.println("Fee: "+ cfee.withScale(2) );
+					System.out.println("You spend: "+ (cmoney.plus(fee)).withScale(2) + " (incl. a fee of "+ cfee.withScale(2)+")");
+					System.out.println("You get: "+stock);
+					tradeableAmount = stock.getAmount();
+					tradableIdentifier = stock.getCurrencyUnit().getCurrencyCode();
+				}
+			}
+			else {
+				// we sell stocks
+				orderType = (OrderType.ASK);
+				if (vol.getCurrencyUnit().equals(price.getCurrencyUnit())){
+					// we sell stocks for a specific amount of money
+					cfee = vol.multipliedBy(BigDecimal.valueOf(fee/100));
+					cmoney = vol;
+					stock = BigMoney.of(CurrencyUnit.of(targetWallet.getCurrency()),cmoney.getAmount().divide((price.getAmount()), RoundingMode.HALF_UP));
+					System.out.println("Fee: "+ cfee.withScale(2) );
+					System.out.println("You spend: "+ cmoney);
+					System.out.println("You get: "+stock.withScale(2) + " (incl. fee of "+cfee.withScale(2)+")");
+					orderType = (OrderType.ASK);
+					tradeableAmount = stock.getAmount();
+					tradableIdentifier = cmoney.getCurrencyUnit().getCurrencyCode();
+			
+				}else{
+					// we sell a specific amount of stocks
+					cfee = price.multipliedBy(vol.getAmount().multiply(BigDecimal.valueOf(fee/100))).withScale(2, RoundingMode.DOWN);
+					cmoney = price.multipliedBy(vol.getAmount()).withScale(2, RoundingMode.DOWN);
+					stock = vol;
+					System.out.println("Fee: "+ cfee );
+					System.out.println("You spend: "+ vol);
+					System.out.println("You get: "+ cmoney.minus(cfee) + " (incl. fee of "+cfee+")");
+					tradeableAmount = stock.getAmount();
+					tradableIdentifier = vol.getCurrencyUnit().getCurrencyCode();
+				}
+			}
+			String transactionCurrency = price.getCurrencyUnit().getCurrencyCode();
+			BigMoney limitPrice = price;
+			LimitOrder limitOrder = new LimitOrder(orderType, tradeableAmount, tradableIdentifier, transactionCurrency, msg.getReplyWith(), new Date(),limitPrice );
+			String tradeResult = placeOrder(limitOrder);
+			if (tradeResult!=null){
+				if (sourceWallet.equals(btcWallet)){
+					usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().plus(cmoney.withScale(2)).minus(cfee.withScale(2)).withScale(2).getAmount());
+					btcWallet = Wallet.createInstance(btcWallet.getCurrency(), btcWallet.getBalance().minus(stock).getAmount());
+				}else{
+					usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().minus(cmoney.withScale(2)).minus(cfee.withScale(2)).withScale(2).getAmount());
+					btcWallet = Wallet.createInstance(btcWallet.getCurrency(), btcWallet.getBalance().plus(stock).getAmount());
+				}
+				last_payed_stock_price = price.multipliedBy(1+(fee/100)).withScale(2, RoundingMode.UP);
+				return true;
+			}else{
+				return false;
+			}	
+		};
+		
 		private void stopLossTrade(){
-			if(ticker.getBid().multipliedBy(BigDecimal.valueOf(1-fee/100)).isLessThan(last_payed_stock_price.multipliedBy(stop_loss/100))){
-				//TODO start selling everything because of stop loss
-				BigMoney sales = calculate_sales_stock_to_usd(null, btcWallet, fee);
+			if (currentStockValue(btcWallet).isPositive() ){
+			System.out.println("stopLossTrade:");
+			BigMoney currentStockValue = currentStockValue(btcWallet).withScale(2, RoundingMode.DOWN);
+			System.out.println("Current value:"+currentStockValue);
+			BigMoney paidStockValue = last_payed_stock_price.multipliedBy(btcWallet.getBalance().getAmount()).withScale(2,RoundingMode.DOWN); 
+			System.out.println("Paid :"+paidStockValue);
+			BigDecimal currentLoss = currentStockValue.dividedBy(paidStockValue.getAmount(), RoundingMode.HALF_UP).getAmount();
+			System.out.println("Loss factor:"+currentLoss);
+			//if stop loss threshold is already reached sell everything
+			boolean order = false;
+			if(currentLoss.multiply(BigDecimal.valueOf(100)).doubleValue() < stop_loss){
 				BigDecimal amount = btcWallet.getBalance().getAmount();
 				BigMoney price = ticker.getBid();
 					if (amount.multiply(price.getAmount()).doubleValue() > 1.00){
-						  OrderType orderType = (OrderType.ASK);
-						    BigDecimal tradeableAmount = amount;
-						    String tradableIdentifier = "BTC";
-						    String transactionCurrency = "USD";
-						    BigMoney limitPrice = price;
-						    LimitOrder limitOrder = new LimitOrder(orderType, tradeableAmount, tradableIdentifier, transactionCurrency, msg.getReplyWith(), new Date(),limitPrice );
-						    placeOrder(limitOrder);
-						   order = true;
+						order = simpleTrade( null, price, btcWallet.getBalance(), btcWallet, fee,  usdWallet);
 						} else { order = false;}     
 				if (order){
-				usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().plus(sales).getAmount());
-				btcWallet = Wallet.createInstance(btcWallet.getCurrency(), BigDecimal.ZERO);
-				
-				String text="Sold BTC at "+ticker.getBid()+" USD because of stop loss;   USD balance: "+usdWallet.getBalance()+
+					String text="Sold BTC at "+ticker.getBid()+" USD because of stop loss;   USD balance: "+usdWallet.getBalance()+
     	                           "   BTC balance: "+btcWallet.getBalance()+"\n";
-				//DebianMail('Sold BTC at Stop Loss',$text);
 				System.out.println(text);
-				//#Log $USD, $BTC, $ticker->{"bid"};
-				//exit 0;
-			}
+				}
+			}else{
 				
-			     //now sell with an increasing probability even with loss
+			//now sell with an increasing probability even with loss
 			    
 				prob_stop_loss_sell++;
-			    System.out.println("increase stop loss prob: "+prob_stop_loss_sell+"\n");
-			     if(Math.random() < prob_stop_loss_sell/(6+prob_stop_loss_sell)){  // use a simulated annealing similar approach
-				// now selling
-			    	 /*
-				my $order;
-                                    if ($config->{"simulate-orders"} eq "no"){
-                     */               
-                    amount = btcWallet.getBalance().getAmount();
-					price = ticker.getBid();
-					if (amount.multiply(price.getAmount()).doubleValue() > 1.00){
-						  OrderType orderType = (OrderType.ASK);
-						    BigDecimal tradeableAmount = amount;
-						    String tradableIdentifier = "BTC";
-						    String transactionCurrency = "USD";
-						    BigMoney limitPrice = price;
-						    LimitOrder limitOrder = new LimitOrder(orderType, tradeableAmount, tradableIdentifier, transactionCurrency, msg.getReplyWith(), new Date(),limitPrice );
-						    placeOrder(limitOrder);
-						   order = true;
-						} else { order = false;}
-                                    }
-				if (order){
-					sales = calculate_sales_stock_to_usd(null,btcWallet,fee);
-					BigMoney selling_loss = last_payed_stock_price.multipliedBy(btcWallet.getBalance().getAmount()).minus(sales);
-					last_payed_stock_price = sales.dividedBy(btcWallet.getBalance().getAmount(), RoundingMode.HALF_UP);
-					usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().plus(sales).getAmount());
-					btcWallet = Wallet.createInstance(btcWallet.getCurrency(), BigDecimal.ZERO);
+				double panicFactor = prob_stop_loss_sell/(6+prob_stop_loss_sell); 
+			    System.out.println("Panic factor increased to : "+panicFactor+"\n");
+			     if(Math.random() < panicFactor ){  // use a simulated annealing similar approach
+            
+              		BigMoney price = ticker.getBid();
+					if (btcWallet.getBalance().getAmount().multiply(price.getAmount()).doubleValue() > 1.00){
+						order = simpleTrade( null, price, btcWallet.getBalance(), btcWallet, fee,  usdWallet);
+					}
+					else { order = false;}
+                                    
+					if (order){
 					String text="Sold BTC at "+ticker.getBid()+" because of permanent price loss\n   USD balance: "+usdWallet.getBalance()+
                                     	                "   BTC balance: "+btcWallet.getBalance()+"\n";
-                    //DebianMail('Sold BTC because of price loss',$text);
                     System.out.println(text);
-                    //                	#Log $USD, $BTC, $ticker->{"bid"};
-				} 
+					}
+			    }
+			}
 			}
 		}
 		
 		private void fallingTrade(){
+
+			System.out.println("fallingTrade:");
 			state="falling";
 			
-			BigMoney sales = calculate_sales_stock_to_usd(null,btcWallet,fee);
-			if (sales.isPositive()) {
+			BigMoney win = (ticker.getLast().multipliedBy(btcWallet.getBalance().getAmount()).multipliedBy(1-(fee/100))).minus(last_payed_stock_price.multipliedBy(btcWallet.getBalance().getAmount()));
+			if (win.isPositive()) {
+				BigMoney sales = ticker.getLast().multipliedBy(btcWallet.getBalance().getAmount()).multipliedBy(1-(fee/100));
 			   System.out.println("last_payed: "+last_payed_stock_price+"\n"+
 				"BTC: "+btcWallet.getBalance()+"\n"+
-				"win: "+(1+(minimal_win/100))+"\n"+
+				"win: "+ win.withScale(2, RoundingMode.DOWN) + " "+(1+(minimal_win/100))+"\n"+
 				"sales: "+sales+"\n");
 				
-			   if (last_payed_stock_price.getAmount().multiply(btcWallet.getBalance().getAmount()).multiply(BigDecimal.valueOf(1+(minimal_win/100))).doubleValue() < sales.getAmount().doubleValue()){
+			   if (win.isGreaterThan(last_payed_stock_price.multipliedBy(btcWallet.getBalance().getAmount()).multipliedBy(minimal_win/100))){
 				// now selling all BTC
 				   /*
 				# first transfer 1 percent of earnings to own account
@@ -356,21 +436,17 @@ public class TraderAgent extends Agent {
 				// now sell all bitcoins
 				// if ($config->{"simulate-orders"} eq "no"){
 					BigMoney price = ticker.getBid().multipliedBy(1.005);
-					if (btcWallet.getBalance().getAmount().multiply(price.getAmount()).doubleValue() > 1.00) {
-					    OrderType orderType = (OrderType.ASK);
-					    BigDecimal tradeableAmount = btcWallet.getBalance().getAmount();
-					    String tradableIdentifier = "BTC";
-					    String transactionCurrency = "USD";
-					    BigMoney limitPrice = price;
-					    LimitOrder limitOrder = new LimitOrder(orderType, tradeableAmount, tradableIdentifier, transactionCurrency, msg.getReplyWith(), new Date(),limitPrice );
-					    placeOrder(limitOrder);
-					   order = true;
+					if (sales.getAmount().doubleValue() > 1.00) {
+						order = simpleTrade( null, price, btcWallet.getBalance(), btcWallet, fee,  usdWallet);
+
 					} else { order = false;}
 				}
 				if (order){
+					/*
 					last_payed_stock_price = sales.dividedBy(btcWallet.getBalance().getAmount(),RoundingMode.HALF_UP);
 					usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().plus(sales).getAmount());
 					btcWallet = Wallet.createInstance(btcWallet.getCurrency(), BigDecimal.ZERO);
+					*/
 					String text="Sold BTC at "+last_payed_stock_price+" USD\n   USD balance: "+usdWallet.getBalance()+
 					         "   BTC balance: "+btcWallet.getBalance()+"\n";
 				//	DebianMail('Sold BTC',$text);
@@ -398,26 +474,16 @@ public class TraderAgent extends Agent {
 					BigMoney salesvol = limit.minus(btcWallet.getBalance().convertedTo(CurrencyUnit.USD, ticker.getAsk().getAmount()));
 					if (usd.isLessThan(salesvol)) { salesvol = usd; }
 					System.out.println("Salesvol: "+salesvol+"\n");
+					
 					BigMoney	price = ticker.getAsk().multipliedBy(1.005);
-					BigDecimal amount = calculate_sales_usd_to_stock(null, price, salesvol, fee, btcWallet);
-						if (price.multipliedBy(amount).isGreaterThan(BigMoney.of(CurrencyUnit.USD, 1))) {
-						    OrderType orderType = (OrderType.BID);
-						    BigDecimal tradeableAmount = amount;
-						    String tradableIdentifier = "BTC";
-						    String transactionCurrency = "USD";
-						    BigMoney limitPrice = price;
-
-						    LimitOrder limitOrder = new LimitOrder(orderType, tradeableAmount, tradableIdentifier, transactionCurrency, msg.getReplyWith(), new Date(),limitPrice );
-						    placeOrder(limitOrder);
-						    last_payed_stock_price = limitOrder.getLimitPrice();
-						    order = true;
+						if (salesvol.isGreaterThan(BigMoney.of(CurrencyUnit.USD, 1))) {
+							order = simpleTrade(null, price, salesvol, usdWallet, fee, btcWallet);
+					
 						} else { order = false; }
 					
 					if (order){
 								   //last_payed_stock_price=((last_payed_stock_price.multipliedBy(btcWallet.getBalance().getAmount()).plus(salesvol)).dividedBy(btcWallet.getBalance().getAmount().add(usd_to_sell.getAmount()), RoundingMode.HALF_UP));
-									 usdWallet = Wallet.createInstance(usdWallet.getCurrency(), usdWallet.getBalance().getAmount().subtract(salesvol.getAmount()));
-        		                     btcWallet = Wallet.createInstance(btcWallet.getCurrency(), btcWallet.getBalance().getAmount().add(amount));
-        			                 String text="Bought BTC at "+last_payed_stock_price+" USD\n   USD balance: "+usdWallet.getBalance()+
+							           String text="Bought BTC at "+last_payed_stock_price+" USD\n   USD balance: "+usdWallet.getBalance()+
                 			                          "   BTC balance: "+btcWallet.getBalance()+"\n";
                         	        //	DebianMail('Bought BTC',$text);
 	                                	System.out.println(text);
@@ -425,6 +491,10 @@ public class TraderAgent extends Agent {
 					} 
 					else { System.out.println("Error while ordering!\n"); }
 	                        }
+		}
+		
+		private BigMoney currentStockValue(Wallet wallet){
+			return ticker.getBid().multipliedBy(BigDecimal.valueOf(1-(fee/100)).multiply(wallet.getBalance().getAmount())).rounded(2, RoundingMode.HALF_DOWN);
 		}
 		
 		/*

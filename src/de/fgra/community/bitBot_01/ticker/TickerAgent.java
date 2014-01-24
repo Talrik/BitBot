@@ -29,7 +29,7 @@ public class TickerAgent extends Agent {
 	
 	private String name = "Ticker";
 	private String type = "price-ticker";
-	private int tickInt = 1000;
+	private int tickInt = 100;
 	private int offset = 100;
 	private int factor = 10;
 	private double variation = 1;
@@ -143,7 +143,7 @@ public class TickerAgent extends Agent {
 	}
 	
 	private class PublishPrice extends Behaviour {
-		private HashMap<AID,Order> interestedTraders = new HashMap<AID,Order>();// The agent who provide offers 
+		private HashMap<AID,ACLMessage> interestedTraders = new HashMap<AID,ACLMessage>();// The agent who provide offers 
 		private int repliesCnt = 0; // The counter of replies from seller agents
 		private MessageTemplate mt; // The template to receive replies
 		private int step = 0;
@@ -177,23 +177,24 @@ public class TickerAgent extends Agent {
 						// This is an offer 
 						LimitOrder order = gson.fromJson(reply.getContent(), LimitOrder.class);
 //						Order order = gson.fromJson(reply.getContent(),Order.class);  
-						interestedTraders.put(reply.getSender(), order);
+						interestedTraders.put(reply.getSender(), reply);
 						if (order instanceof LimitOrder){
 							if(order.getType().equals(Order.OrderType.BID)){
-								System.out.println(reply.getSender()+" wants to buy " + order.getTradableAmount() + " " + order.getTradableIdentifier() + " for up to " +((LimitOrder)order).getLimitPrice());
-							}else{	System.out.println(reply.getSender()+" wants to sell " + order.getTradableAmount() + " " + order.getTradableIdentifier() + " for not less than " +((LimitOrder)order).getLimitPrice());
+								System.out.println(reply.getSender().getLocalName()+" wants to buy " + order.getTradableAmount() + " " + order.getTradableIdentifier() + " for up to " +((LimitOrder)order).getLimitPrice());
 							}
-							}else{
-								if(order.getType().equals(Order.OrderType.BID)){
-									System.out.println(reply.getSender()+" wants to buy " + order.getTradableAmount() + " " + order.getTradableIdentifier()+".");
-								}
-								else{
-							System.out.println(reply.getSender()+" wants to sell " + order.getTradableAmount() + " " + order.getTradableIdentifier() +".");	
+							else{	System.out.println(reply.getSender().getLocalName()+" wants to sell " + order.getTradableAmount() + " " + order.getTradableIdentifier() + " for not less than " +((LimitOrder)order).getLimitPrice());
+							}
+						}else{
+							if(order.getType().equals(Order.OrderType.BID)){
+								System.out.println(reply.getSender().getLocalName()+" wants to buy " + order.getTradableAmount() + " " + order.getTradableIdentifier()+".");
+							}
+							else{
+							System.out.println(reply.getSender().getLocalName()+" wants to sell " + order.getTradableAmount() + " " + order.getTradableIdentifier() +".");	
+							}
 						}
-					}
-					repliesCnt++;
-					if (repliesCnt >= traders.length) {
-						// We received all replies
+						repliesCnt++;
+						if (repliesCnt >= traders.length) {
+							// We received all replies
 						step = 2; 
 					}
 				}
@@ -203,20 +204,23 @@ public class TickerAgent extends Agent {
 				break;
 			case 2:
 				// Send the purchase order to the traders that provided offers
-				for (Map.Entry<AID, Order> entry : interestedTraders.entrySet())
+				for (Map.Entry<AID, ACLMessage> entry : interestedTraders.entrySet())
 				{
+					System.out.println("Sending confirmation to "+entry.getKey().getLocalName());
 					ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
 					order.addReceiver(entry.getKey());
-					order.setContent(String.valueOf(entry.getValue()));
+					order.setContent(String.valueOf(gson.fromJson(entry.getValue().getContent(), LimitOrder.class)));
 					order.setConversationId("confirm-trading");
+					order.setInReplyTo(entry.getValue().getReplyWith());
 					myAgent.send(order);
 				}
+				step = 3; 
 				break;
 			}        
 		}
 
 		public boolean done() {
-			return (step == 2);
+			return (step == 3);
 		}
 	}  // End of inner class RequestPerformer
 	

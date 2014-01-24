@@ -29,7 +29,7 @@ public class CSVTickerAgent extends TickerAgent {
 	protected void setup(){
 				setTickerName("CSVTicker");
 				setTickerType("price-ticker");
-				setTickInt(5000);
+				setTickInt(100);
 				try{
 				CSVFile = 
 				        new BufferedReader(new FileReader("bitstampUSD.csv"));
